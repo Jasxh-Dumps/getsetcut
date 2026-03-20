@@ -26,7 +26,7 @@ jobs:
         run: |
           sudo apt-get update -y
           sudo apt-get install -y ffmpeg python3-pip
-          pip install yt-dlp
+          pip install yt-dlp requests
 
       - name: Install rclone
         run: curl https://rclone.org/install.sh | sudo bash
