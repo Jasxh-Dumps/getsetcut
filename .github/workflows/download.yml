@@ -4,7 +4,15 @@ on:
   workflow_dispatch:
     inputs:
       video_url:
-        description: 'Hotstar Video URL'
+        description: 'Video M3U8 URL'
+        required: true
+        type: string
+      audio_url:
+        description: 'Audio M3U8 URL'
+        required: true
+        type: string
+      title:
+        description: 'Output filename'
         required: true
         type: string
       quality:
@@ -26,7 +34,7 @@ jobs:
         run: |
           sudo apt-get update -y
           sudo apt-get install -y ffmpeg python3-pip
-          pip install yt-dlp requests
+          pip3 install yt-dlp requests
 
       - name: Install rclone
         run: curl https://rclone.org/install.sh | sudo bash
@@ -36,57 +44,37 @@ jobs:
           mkdir -p ~/.config/rclone
           echo "${{ secrets.RCLONE_CONFIG }}" | base64 -d > ~/.config/rclone/rclone.conf
 
-      - name: Setup Hotstar cookies
+      - name: Download video stream
         run: |
-          echo "${{ secrets.HOTSTAR_COOKIES }}" | base64 -d > /tmp/hotstar_cookies.txt
-
-      - name: Show available formats
-        run: |
-          yt-dlp --cookies /tmp/hotstar_cookies.txt \
-            --proxy "https://64.227.134.69:443" \
-            -F "${{ inputs.video_url }}"
-
-      - name: Download 1080p H.264
-        if: inputs.quality == '1080p'
-        run: |
-          yt-dlp --cookies /tmp/hotstar_cookies.txt \
-            --proxy "https://64.227.134.69:443" \
-            -f "bestvideo[vcodec^=avc1][height<=1080]+bestaudio" \
-            --merge-output-format mp4 \
-            -o "/tmp/output.mp4" \
+          yt-dlp \
+            -f "best" \
+            -o "/tmp/video_only.mp4" \
             "${{ inputs.video_url }}"
 
-      - name: Download 4K + Transcode to ProRes
-        if: inputs.quality == '4K'
+      - name: Download audio stream
         run: |
-          yt-dlp --cookies /tmp/hotstar_cookies.txt \
-            --proxy "https://64.227.134.69:443" \
-            -f "bestvideo[height<=2160]+bestaudio" \
-            --merge-output-format mp4 \
-            -o "/tmp/raw_4k.mp4" \
-            "${{ inputs.video_url }}"
+          yt-dlp \
+            -f "best" \
+            -o "/tmp/audio_only.m4a" \
+            "${{ inputs.audio_url }}"
 
-          ffmpeg -i /tmp/raw_4k.mp4 \
+      - name: Merge + Transcode to ProRes
+        run: |
+          ffmpeg -i /tmp/video_only.mp4 -i /tmp/audio_only.m4a \
             -c:v prores_ks -profile:v 3 \
             -vendor apl0 \
             -c:a pcm_s16le \
-            /tmp/output.mov
+            -map 0:v:0 -map 1:a:0 \
+            "/tmp/${{ inputs.title }}.mov"
 
       - name: Upload to Google Drive
         run: |
-          if [ "${{ inputs.quality }}" == "4K" ]; then
-            FILE="/tmp/output.mov"
-          else
-            FILE="/tmp/output.mp4"
-          fi
-
-          rclone copy "$FILE" "gdrive:Downloads" \
+          rclone copy "/tmp/${{ inputs.title }}.mov" "gdrive:Downloads" \
             --progress
-
           echo "✅ Upload complete!"
 
       - name: Cleanup
         if: always()
         run: |
-          rm -f /tmp/hotstar_cookies.txt
-          rm -f /tmp/output.mp4 /tmp/output.mov /tmp/raw_4k.mp4
+          rm -f /tmp/video_only.mp4 /tmp/audio_only.m4a
+          rm -f "/tmp/${{ inputs.title }}.mov"
