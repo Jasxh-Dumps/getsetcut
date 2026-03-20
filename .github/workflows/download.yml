@@ -1,0 +1,88 @@
+name: Download & Upload to Google Drive
+
+on:
+  workflow_dispatch:
+    inputs:
+      video_url:
+        description: 'Hotstar Video URL'
+        required: true
+        type: string
+      quality:
+        description: 'Quality'
+        required: true
+        default: '1080p'
+        type: choice
+        options:
+          - 1080p
+          - 4K
+
+jobs:
+  download-and-upload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y ffmpeg python3-pip
+          pip install yt-dlp
+
+      - name: Install rclone
+        run: curl https://rclone.org/install.sh | sudo bash
+
+      - name: Setup rclone
+        run: |
+          mkdir -p ~/.config/rclone
+          echo "${{ secrets.RCLONE_CONFIG }}" | base64 -d > ~/.config/rclone/rclone.conf
+
+      - name: Setup Hotstar cookies
+        run: |
+          echo "${{ secrets.HOTSTAR_COOKIES }}" | base64 -d > /tmp/hotstar_cookies.txt
+
+      - name: Show available formats
+        run: |
+          yt-dlp --cookies /tmp/hotstar_cookies.txt -F "${{ inputs.video_url }}"
+
+      - name: Download 1080p H.264
+        if: inputs.quality == '1080p'
+        run: |
+          yt-dlp --cookies /tmp/hotstar_cookies.txt \
+            -f "bestvideo[vcodec^=avc1][height<=1080]+bestaudio" \
+            --merge-output-format mp4 \
+            -o "/tmp/output.mp4" \
+            "${{ inputs.video_url }}"
+
+      - name: Download 4K + Transcode to ProRes
+        if: inputs.quality == '4K'
+        run: |
+          yt-dlp --cookies /tmp/hotstar_cookies.txt \
+            -f "bestvideo[height<=2160]+bestaudio" \
+            --merge-output-format mp4 \
+            -o "/tmp/raw_4k.mp4" \
+            "${{ inputs.video_url }}"
+
+          ffmpeg -i /tmp/raw_4k.mp4 \
+            -c:v prores_ks -profile:v 3 \
+            -vendor apl0 \
+            -c:a pcm_s16le \
+            /tmp/output.mov
+
+      - name: Upload to Google Drive
+        run: |
+          if [ "${{ inputs.quality }}" == "4K" ]; then
+            FILE="/tmp/output.mov"
+          else
+            FILE="/tmp/output.mp4"
+          fi
+
+          rclone copy "$FILE" "gdrive:Downloads" \
+            --progress
+
+          echo "✅ Upload complete!"
+
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -f /tmp/hotstar_cookies.txt
+          rm -f /tmp/output.mp4 /tmp/output.mov /tmp/raw_4k.mp4
