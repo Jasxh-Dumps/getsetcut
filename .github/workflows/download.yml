@@ -42,12 +42,15 @@ jobs:
 
       - name: Show available formats
         run: |
-          yt-dlp --cookies /tmp/hotstar_cookies.txt -F "${{ inputs.video_url }}"
+          yt-dlp --cookies /tmp/hotstar_cookies.txt \
+            --proxy "https://64.227.134.69:443" \
+            -F "${{ inputs.video_url }}"
 
       - name: Download 1080p H.264
         if: inputs.quality == '1080p'
         run: |
           yt-dlp --cookies /tmp/hotstar_cookies.txt \
+            --proxy "https://64.227.134.69:443" \
             -f "bestvideo[vcodec^=avc1][height<=1080]+bestaudio" \
             --merge-output-format mp4 \
             -o "/tmp/output.mp4" \
@@ -57,6 +60,7 @@ jobs:
         if: inputs.quality == '4K'
         run: |
           yt-dlp --cookies /tmp/hotstar_cookies.txt \
+            --proxy "https://64.227.134.69:443" \
             -f "bestvideo[height<=2160]+bestaudio" \
             --merge-output-format mp4 \
             -o "/tmp/raw_4k.mp4" \
